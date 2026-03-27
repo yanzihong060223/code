@@ -50,7 +50,7 @@
                 allocatenewBlock();
               }
               temp=curSlot;
-              curSlot+= SlotSize_;
+              curSlot+=(SlotSize_)/sizeof(Slot);
         }
         return temp;
       }
