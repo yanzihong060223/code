@@ -23,13 +23,7 @@ Channel::~Channel()
 {
 }
 
-// channel的tie方法什么时候调用过?  TcpConnection => channel
-/**
- * TcpConnection中注册了Channel对应的回调函数，传入的回调函数均为TcpConnection
- * 对象的成员方法，因此可以说明一点就是：Channel的结束一定晚于TcpConnection对象！
- * 此处用tie去解决TcpConnection和Channel的生命周期时长问题，从而保证了Channel对象能够在
- * TcpConnection销毁前销毁。
- **/
+
 void Channel::tie(const std::shared_ptr<void> &obj)
 {
     tie_ = obj;

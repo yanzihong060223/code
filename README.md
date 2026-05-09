@@ -1,142 +1,53 @@
 # muduo-core
+基于 Linux C++11 复刻 Muduo 核心高并发网络库，保留原版 Reactor 架构设计，去除 Boost 依赖，聚焦事件驱动、IO 多路复用核心原理实现。
 
-> **本项目目前只在[知识星球](https://programmercarl.com/other/kstar.html)答疑并维护**。
+## 项目概述
+本项目严格遵循 Muduo 经典 **One Loop Per Thread** 设计思想，基于 Epoll 实现 IO 多路复用，以 EventLoop、Channel 为核心骨架搭建标准 Reactor 事件驱动模型，实现多线程主从 Reactor 高并发 TCP 网络库，完整复刻原生 Muduo 网络编程核心流程与设计范式。
 
-[知识星球](https://programmercarl.com/other/kstar.html)再添 CPP项目专栏， 关于网络库，知名的就是陈硕的muduo
+## 核心核心组件详解
+### 1. EventLoop 事件循环
+EventLoop 是整个网络库的**核心调度中枢**，每个线程有且仅有一个 EventLoop 实例。
+- 负责持续循环调用 Epoll 阻塞等待事件就绪
+- 统一分发所有 IO 事件、读写事件、关闭事件
+- 维护任务队列，支持跨线程投递任务、异步执行回调
+- 绑定线程唯一性，保证事件循环不会跨线程错乱
+- 驱动整个 Reactor 模型运转，是所有事件的管理者与调度者
 
-之前也有不少录友，自己做一个muduo写到简历上。
+### 2. Channel 事件通道
+Channel 是**文件描述符与事件回调的封装载体**，是 Reactor 模型的最小事件单元。
+- 封装 fd、可读、可写、异常、关闭事件
+- 绑定各类事件对应的回调函数
+- 向 EventLoop 注册/注销监听事件
+- 不持有 fd 所有权，只做事件描述与回调分发
+- Epoll 监听到就绪事件后，由 EventLoop 调度对应 Channel 执行回调
 
-这次 我们从 面试的角度带大家速成muduo，**【项目细节】【项目面试常见问题汇总】【拓展出的基础知识汇总】【测试相关问题】【简历写法】** 都给大家安排的明明白白。
+### 3. EpollPoller 封装 Epoll 多路复用
+对 Linux 原生 Epoll 系统调用进行面向对象封装，作为 EventLoop 底层事件等待器。
+- 封装 epoll_create、epoll_ctl、epoll_wait 核心调用
+- 支持文件描述符的事件注册、修改、删除
+- 阻塞等待内核 IO 事件就绪，批量返回活跃 Channel
+- 兼容 LT 水平触发、ET 边缘触发两种工作模式
+- 向上为 EventLoop 提供统一事件查询接口，屏蔽底层系统调用细节
 
-## 为什么要做 muduo？
+## 整体工作流程
+1. EpollPoller 通过 epoll_wait 阻塞等待内核 IO 事件到达；
+2. 拿到就绪 fd 与事件，找到对应绑定的 Channel；
+3. EventLoop 遍历就绪 Channel，根据事件类型调用注册好的读写/关闭回调；
+4. 所有事件都在所属 EventLoop 线程内串行处理，避免多线程竞争；
+5. 新连接由 Acceptor 接管，分配给子 Reactor 的 EventLoop 进行后续事件管理。
 
-*  通过学习muduo网络库源码，一定程度上提升了linux网络编程能力;
-*  熟悉了网络编程及其下的线程池，缓冲区等设计，学习了多线程编程;
-*  通过深入了解muduo网络库源码，对经典的五种IO模型及Reactor模型有了更深的认识
-*  掌握基于事件驱动和事件回调的epoll+线程池面向对象编程。
+## 其他模块
+- Acceptor：封装服务端 Socket、bind、listen、accept，负责监听接收新连接
+- TcpServer：网络库对外入口，管理线程池、连接生命周期、回调注册
+- TcpConnection：封装单条 TCP 连接，管理收发、断连、状态流转
+- Buffer：应用层读写缓冲区，自动扩容，解决 TCP 粘包问题
+- EventLoopThreadPool：事件循环线程池，实现主从 Reactor 负载均衡
 
-## 参考书籍
-
-* 陈硕（官方）：https://github.com/chenshuo/muduo/
-* 《Linux多线程服务器编程-使用 muduo C++网络库》-陈硕
-* 《Linux高性能服务器编程》-游双
-
-## 项目专栏目录
-
-* muduo网络库项目前言
-    * 为什么要做 muduo？
-    * 所需要的基础知识
-    * 参考书籍
-* 框架梳理
-* 并发框架
-    * Channel
-        * Channel类重要的成员变量：
-        * Channel类重要的成员方法
-    * Poller
-        * Poller/EpollPoller概述
-        * Poller/EpollPoller的重要成员变量：
-        * EpollPoller给外部提供的最重要的方法：
-    * EventLoop
-        * EventLoop概述：
-        * One Loop Per Thread 含义介绍
-        * 全局概览Poller、Channel和EventLoop在整个Multi-Reactor通信架构中的角色
-        * EventLoop重要方法 EventLoop:loop()：
-    * Acceptor
-        * Acceptor封装的重要成员变量
-        * Acceptor封装的重要成员方法
-    * tcpconnection
-        * TcpConnection的重要变量
-        * TcpConnection的重要成员方法：
-    * socket
-    * buffer
-        * 重要的成员方法：
-* 项目介绍
-    * 简单介绍一下你的项目
-* 项目面试常见问题汇总
-    * 项目中的难点？
-        * 如果TcpConnection中有正在发送的数据，怎么保证在触发TcpConnection关闭机制后，能先让TcpConnection先把数据发送完再释放TcpConnection对象的资源？
-    * 项目中遇到的困难？是如何解决的？
-        * 怎么保证一个线程只有一个EventLoop对象
-        * 怎么保证不该跨线程调用的函数不会跨线程调用
-    * 项目当中有什么亮点
-        * Channel的tie _ 涉及到的精妙之处
-* 项目细节
-    * 日志系统
-        * 异步日志流程
-        * 开启异步日志
-        * 把日志写入缓冲区
-    * 缓存机制
-        * Buffer数据结构
-        * 把socket上的数据写入Input Buffer
-        * 把用户数据通过output buffer发送给对方
-    * muduo定时器实现思路
-* 项目拓展出的基础知识汇总
-    * IO多路复用
-        * 说一下什么是ET，什么是LT，有什么区别？
-        * 为什么ET模式不可以文件描述符阻塞，而LT模式可以呢？
-        * 你用了epoll，说一下为什么用epoll，还有其他多路复用方式吗？区别是什么？
-    * 并发模型
-        * reactor、proactor模型的区别？
-        * reactor模式中，各个模式的区别？
-    * 测试相关问题
-* 简历写法 & 面试技巧
-    * 本项目简历写法
-    * 通用简历写法
-    * 面试技巧
-        * 八股
-        * 算法
-        * 实习
-        * 项目
-
-
-
-## 简历写法
-
-为了避免[知识星球](https://programmercarl.com/other/kstar.html)里大家学习这个项目写简历重复，本项目专栏提供了三种简历写法：
-
-![](https://file1.kamacoder.com/i/algo/20240904205019.png)
-
-## 本项目常见问题
-
-面试中，面试官最喜欢问的就是项目难点，以及这个难点你是如何解决的。
-
-专栏里都给出明确的例子：
-
-![](https://file1.kamacoder.com/i/algo/20240904204734.png)
-
-## 项目亮点以及项目细节
-
-为了更好的掌握这个项目，亮点和细节都给大家讲清楚：
-
-![](https://file1.kamacoder.com/i/algo/20240904204822.png)
-
-## 项目拓展出的基础知识
-
-在做做项目的时候，最好的方式就是 理论基础知识和项目实战相结合。
-
-面试官也喜欢在 项目中问基础知识（八股文），本专栏也给出muduo可以拓展哪些基础知识
-
-![](https://file1.kamacoder.com/i/algo/20240904204936.png)
-
-## 项目专栏部分截图
-
-![](https://file1.kamacoder.com/i/algo/20240904204906.png)
-
-![](https://file1.kamacoder.com/i/algo/20240904205923.png)
-
-## 突击来用
-
-如果大家面试在即，实在没时间做项目了，可以直接按照专栏给出的【简历写法】，写到简历上，然后把项目专栏里的面试问题，都认真背一背就好了，基本覆盖 绝大多数 RPC项目问题。
-
-## 答疑
-
-本项目在[知识星球](https://programmercarl.com/other/kstar.html)里为 文字专栏形式，大家不用担心，看不懂，星球里每个项目有专属答疑群，任何问题都可以在群里问，都会得到解答：
-
-![](https://file1.kamacoder.com/i/web/2025-09-26_11-30-13.jpg)
-
-
-## 获取本项目专栏
-
-**本文档仅为星球内部专享，大家可以加入[知识星球](https://programmercarl.com/other/kstar.html)里获取，在星球置顶**
-
-
+## 编译运行
+```bash
+mkdir build
+cd build
+cmake ..
+make -j
+cd ../example
+./testserver
